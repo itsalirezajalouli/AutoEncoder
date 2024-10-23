@@ -48,13 +48,12 @@ class View(nn.Module):
 #   Encoder
 linearLayer = nn.Linear(D, N, bias = False)
 pcaEncoder = nn.Sequential(
-    nn.Flatten(), nn.Linear(D, N), nn.Tanh(),
+    nn.Flatten(), linearLayer, nn.Tanh()
 )
 
 #   Decoder
 pcaDecoder = nn.Sequential(
-    # TransposeLayer(linearLayer, bias = False), View(-1, 1, 28, 28)
-    nn.Linear(N, D), View(-1, 1, 28, 28)
+    TransposeLayer(linearLayer, bias = False), View(-1, 1, 28, 28)
 )
 
 #   Sum
@@ -120,10 +119,9 @@ def encodeBatch(encoder, dataset2encode):
 projected, labels = encodeBatch(pcaEncoder, testSetXY)
 sns.scatterplot(x = projected[:, 0], y = projected[:, 1],
                 hue = [str(l) for l in labels],
-                hue_order = [str(i) for i in range(10)], legend = 'full')
-plt.savefig('scatter.png')
+                hue_order = [str(i) for i in range(10)], lengend = 'full')
 
-def showEncodeDecode(encodeDecode, x, pltname):
+def showEncodeDecode(encodeDecode, x):
     encodeDecode = encodeDecode.eval()
     encodeDecode = encodeDecode.cpu()
     with torch.no_grad():
@@ -131,8 +129,7 @@ def showEncodeDecode(encodeDecode, x, pltname):
     _, axarr = plt.subplots(1, 2)
     axarr[0].imshow(x.numpy()[0, :])
     axarr[1].imshow(xRecon.numpy()[0, 0, :])
-    plt.savefig(f'{pltname}.png')
 
-showEncodeDecode(pcaModel, testSetXY[0][0], 'image1')
-showEncodeDecode(pcaModel, testSetXY[2][0], 'image2')
-showEncodeDecode(pcaModel, testSetXY[10][0], 'image3')
+showEncodeDecode(pcaModel, testSetXY[0][0])
+showEncodeDecode(pcaModel, testSetXY[2][0])
+showEncodeDecode(pcaModel, testSetXY[10][0])
