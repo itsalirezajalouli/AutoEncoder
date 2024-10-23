@@ -46,6 +46,20 @@ class View(nn.Module):
     def forward(self, input):
         return input.view(*self.shape) 
 
+#   Noise
+normal = torch.distributions.Normal(0, 0.5)
+
+def addNoise(x, device = 'cpu'):
+    return x + normal.sample(sample_shape = torch.Size(x.shape)).to(device)
+
+class AdditiveGaussianNoise(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        
+    def forward(self, x):
+        if self.training:
+            return addNoise(x, device = device)
+
 linearLayer = nn.Linear(D, N, bias = False)
 def getLayer(inSize, outSize):
     return nn.Sequential(
@@ -57,19 +71,27 @@ def getLayer(inSize, outSize):
 #   Encoder
 autoEncoder = nn.Sequential(
     nn.Flatten(),
-    getLayer(D, D*2),
-    getLayer(D*2, D*2),
-    getLayer(D*2, D*2),
-    nn.Linear(D*2, D*2),
+    # AdditiveGaussianNoise(),
+    nn.Dropout(0.2),
+    getLayer(D, D//2),
+    nn.Dropout(0.2),
+    getLayer(D//2, D//3),
+    nn.Dropout(0.2),
+    getLayer(D//3, D//4),
+    nn.Dropout(0.2),
+    nn.Linear(D//4, N),
 )
 
 #   Decoder
 autoDecoder = nn.Sequential(
     # TransposeLayer(linearLayer, bias = False), View(-1, 1, 28, 28)
-    getLayer(D*2, D*2),
-    getLayer(D*2, D*2),
-    getLayer(D*2, D*2),
-    nn.Linear(D*2, D),
+    getLayer(N, D//4),
+    nn.Dropout(0.2),
+    getLayer(D//4, D//3),
+    nn.Dropout(0.2),
+    getLayer(D//3, D//2),
+    nn.Dropout(0.2),
+    nn.Linear(D//2, D),
     View(-1, 1, 28, 28)
 )
 
@@ -138,7 +160,7 @@ projected, labels = encodeBatch(autoEncoder, testSetXY)
 sns.scatterplot(x = projected[:, 0], y = projected[:, 1],
                 hue = [str(l) for l in labels],
                 hue_order = [str(i) for i in range(10)], legend = 'full')
-plt.savefig('./plts/scatter2.png')
+plt.savefig('./plts/scatter.png')
 
 def showEncodeDecode(encodeDecode, x, pltname):
     encodeDecode = encodeDecode.eval()
@@ -151,5 +173,6 @@ def showEncodeDecode(encodeDecode, x, pltname):
     plt.savefig(f'{pltname}.png')
 
 showEncodeDecode(model, testSetXY[0][0], './plts/image1')
-showEncodeDecode(model, testSetXY[2][0], './plts/image2')
-showEncodeDecode(model, testSetXY[10][0], './plts/image3')
+showEncodeDecode(model, addNoise(testSetXY[2][0]), './plts/image2')
+showEncodeDecode(model, addNoise(testSetXY[10][0]), './plts/image3')
+showEncodeDecode(model, testSetXY[25][0], './plts/image4')
