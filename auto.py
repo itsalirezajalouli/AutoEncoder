@@ -37,6 +37,7 @@ class TransposeLayer(nn.Module):
 
     def forward(self, x):
         return F.linear(x, self.weight.t(), self.bias)
+
 #   View
 class View(nn.Module):
     def __init__(self, *shape):
@@ -45,21 +46,36 @@ class View(nn.Module):
     def forward(self, input):
         return input.view(*self.shape) 
 
-#   Encoder
 linearLayer = nn.Linear(D, N, bias = False)
-pcaEncoder = nn.Sequential(
-    nn.Flatten(), nn.Linear(D, N), nn.Tanh(),
+def getLayer(inSize, outSize):
+    return nn.Sequential(
+        nn.Linear(inSize, outSize),
+        nn.BatchNorm1d(outSize),
+        nn.ReLU(),
+    )
+
+#   Encoder
+autoEncoder = nn.Sequential(
+    nn.Flatten(),
+    getLayer(D, D*2),
+    getLayer(D*2, D*2),
+    getLayer(D*2, D*2),
+    nn.Linear(D*2, D*2),
 )
 
 #   Decoder
-pcaDecoder = nn.Sequential(
+autoDecoder = nn.Sequential(
     # TransposeLayer(linearLayer, bias = False), View(-1, 1, 28, 28)
-    nn.Linear(N, D), View(-1, 1, 28, 28)
+    getLayer(D*2, D*2),
+    getLayer(D*2, D*2),
+    getLayer(D*2, D*2),
+    nn.Linear(D*2, D),
+    View(-1, 1, 28, 28)
 )
 
 #   Sum
-pcaModel = nn.Sequential(
-    pcaEncoder, pcaDecoder
+model = nn.Sequential(
+    autoEncoder, autoDecoder
 )
 
 #   Orthogonality Constraint
@@ -96,7 +112,7 @@ testSetXX = AutoEncoderDatset(testSetXY)
 trainLoader = DataLoader(trainSet, batchSize, True)
 testLoader = DataLoader(testSetXX, batchSize)
 
-results = train_network(pcaModel, mseLossFunc, trainLoader,
+results = train_network(model, mseLossFunc, trainLoader,
                         testLoader, epochs = 10, device = device)
 print(results)
 
@@ -117,11 +133,12 @@ def encodeBatch(encoder, dataset2encode):
     labels = np.hstack(labels)
     return projected, labels
 
-projected, labels = encodeBatch(pcaEncoder, testSetXY)
+#   Plot
+projected, labels = encodeBatch(autoEncoder, testSetXY)
 sns.scatterplot(x = projected[:, 0], y = projected[:, 1],
                 hue = [str(l) for l in labels],
                 hue_order = [str(i) for i in range(10)], legend = 'full')
-plt.savefig('scatter.png')
+plt.savefig('./plts/scatter2.png')
 
 def showEncodeDecode(encodeDecode, x, pltname):
     encodeDecode = encodeDecode.eval()
@@ -133,6 +150,6 @@ def showEncodeDecode(encodeDecode, x, pltname):
     axarr[1].imshow(xRecon.numpy()[0, 0, :])
     plt.savefig(f'{pltname}.png')
 
-showEncodeDecode(pcaModel, testSetXY[0][0], 'image1')
-showEncodeDecode(pcaModel, testSetXY[2][0], 'image2')
-showEncodeDecode(pcaModel, testSetXY[10][0], 'image3')
+showEncodeDecode(model, testSetXY[0][0], './plts/image1')
+showEncodeDecode(model, testSetXY[2][0], './plts/image2')
+showEncodeDecode(model, testSetXY[10][0], './plts/image3')

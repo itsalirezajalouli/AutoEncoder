@@ -1,3 +1,3 @@
 #   AutoEncoder
----
-making a kind of network that can self-supervise, and no need to label
+Making a kind of network that can self-supervise,
+wondering if i can add this mechanism to other networks...
