@@ -1,11 +1,16 @@
 #   Impos
 import re
+from matplotlib.pyplot import autoscale
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 from io import BytesIO
 from zipfile import ZipFile
+import torch.nn.functional as F
 from urllib.request import urlopen
 from torch.utils.data import Dataset, DataLoader
+
+from idlmam import train_network
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 #   Data
@@ -17,7 +22,7 @@ shakespear100k = shakespear100k.decode('utf-8').lower()
 #   Vocab
 voc2idx = {}
 for char in shakespear100k:
-    if char not in voc2idx.items():
+    if char not in voc2idx:
         voc2idx[char] = len(voc2idx)
 idx2voc = {}
 for k, v in voc2idx.items():
@@ -47,7 +52,8 @@ class NoRegertDataset(Dataset):
         #   Shift
         subStr = self.doc[start + 1:start + self.maxChunk + 1]
         y = [voc2idx[c] for c in subStr]
-        return torch.tensor(x, torch.int64), torch.tensor(y, torch.int64)
+        return torch.tensor(x, dtype = torch.int64, 
+                device = device), torch.tensor(y, dtype = torch.int64, device = device)
 
 #   Model
 class AutoRegerting(nn.Module):
@@ -66,12 +72,13 @@ class AutoRegerting(nn.Module):
             nn.Linear(hiddenSize, vocSize)
         )
 
-    def foward(self, input):
+    def forward(self, input):
         B = input.size(0) # Batch Size
         T = input.size(1) # Max time steps
 
         x = self.embd(input)
-        hPrevs = self.initHiddenStates(B) lastActivations = []
+        hPrevs = self.initHiddenStates(B)
+        lastActivations = []
 
         for t in range(T):
             xIn = x[:, t, :]
@@ -100,8 +107,8 @@ class AutoRegerting(nn.Module):
             hPrevs = self.initHiddenStates(xIn.shape[0])
 
         for l in range(len(self.layers)):
-            hPrev = hPrevs[1]
-            hNew = self.norms[1](self.layers[1](xIn, hPrev))
+            hPrev = hPrevs[l]
+            hNew = self.norms[l](self.layers[l](xIn, hPrev))
             hPrevs[l] = hNew
             xIn = hNew
 
@@ -114,3 +121,44 @@ autoRegModel = AutoRegerting(len(voc2idx), 32, 128, layers = 2)
 autoRegModel = autoRegModel.to(device) 
 for p in autoRegModel.parameters():
     p.register_hook(lambda grad: torch.clamp(grad, -2, 2))
+
+#   LossFunc
+def CrossEntLossTime(x, y):
+    '''`x`: output with shape (B, T, V)
+    `y`: labels with shape (B, T)'''
+    cel = nn.CrossEntropyLoss().to(device)
+    T = x.size(1)
+    loss = 0
+    for t in range(T):
+        loss += cel(x[:, t, :], y[:, t])
+    return loss
+
+#   Train Model
+results = train_network(autoRegModel, CrossEntLossTime, autoRegLoader, epochs = 100,
+                        device = device)
+#   Seeding
+autoRegModel = autoRegModel.eval()
+sampling = torch.zeros((1, 500), dtype = torch.int64, device = device)
+
+seed = 'Emilia:'.lower()
+curLen = len(seed)
+temperature = 0.75
+sampling[0, 0:curLen] = torch.tensor([voc2idx[x] for x in seed])
+
+with torch.no_grad():
+    hPrevs = autoRegModel.initHiddenStates(1)
+    for i in range(0, curLen):
+        h = autoRegModel.step(sampling[:, i], hPrevs = hPrevs)
+
+        #   Generating
+        for i in tqdm(range(curLen, sampling.size(1))):
+            with torch.no_grad():
+                h = F.softmax(h / temperature, dim = 1)
+                nextTokens = torch.multinomial(h, 1)
+                sampling[:, i] = nextTokens
+                curLen += 1
+                h = autoRegModel.step(sampling[:, i], hPrevs = hPrevs)
+
+s = [idx2voc[x] for x in sampling.cpu().numpy().flatten()]
+print(''.join(s))
+
